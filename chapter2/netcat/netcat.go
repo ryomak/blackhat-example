@@ -3,6 +3,7 @@ package main
 import "bufio"
 import "flag"
 import "fmt"
+import "io"
 import "io/ioutil"
 import "net"
 import "os"
@@ -44,7 +45,8 @@ func main() {
 
 func runCommand(command string) []byte {
 	command = strings.TrimRight(command, "\n")
-	out, err := exec.Command(command).Output()
+	commands := strings.Split(command, " ")
+	out, err := exec.Command(commands[0], commands[1:]...).Output()
 	if err != nil {
 		out = []byte(err.Error())
 	}
@@ -60,41 +62,52 @@ func clientSender(sendMsg string) {
 	if sendMsg != "" {
 		client.Write([]byte(sendMsg))
 	}
-	response := ""
 	for {
-		buf := make([]byte, 4096)
-		n, err := client.Read(buf)
-		response += string(buf[:n])
+		response := ""
+		for {
+			buf := make([]byte, 4096)
+			n, err := client.Read(buf)
+			if err != nil {
+				if err != io.EOF {
+					break
+				}
+				fmt.Print(err)
+			}
+			response += string(buf[:n])
+			if n < 4096 {
+				break
+			}
+		}
+		fmt.Print(response)
+		//追加データ
+		var c string
+		_, err = fmt.Scan(&c)
 		if err != nil {
 			fmt.Print(err)
 		}
-		if n < 4096 {
-			break
-		}
+		c += "\n"
+		client.Write([]byte(c))
 	}
-	fmt.Print(response)
-	//追加データ
-	var c string
-	_, err = fmt.Scan(&c)
-	if err != nil {
-		fmt.Print(err)
-	}
-	c += "\n"
-	client.Write([]byte(c))
 }
 
 func serverLoop() {
 	host := *target + ":" + strconv.Itoa(*port)
-	ln, err := net.Listen("tcp", host)
+	tcpAddr, err := net.ResolveTCPAddr("tcp", host)
 	if err != nil {
-		fmt.Printf("err :%v", err)
+		fmt.Printf("ReasolveTCP %v\n", err)
+		os.Exit(1)
+	}
+	ln, err := net.ListenTCP("tcp", tcpAddr)
+	if err != nil {
+		fmt.Printf("ListenTCP %v\n", err)
+		os.Exit(1)
 	}
 	defer ln.Close()
 
 	for {
-		con, err := ln.Accept()
+		con, err := ln.AcceptTCP()
 		if err != nil {
-			fmt.Print(err)
+			fmt.Printf("AcceptTCP %v\n", err)
 			continue
 		}
 		defer con.Close()
@@ -104,7 +117,6 @@ func serverLoop() {
 }
 
 func clientHandler(conn net.Conn) {
-	defer conn.Close()
 	if *uploadDestination != "" {
 		fileBuffer := ""
 		for {
@@ -131,20 +143,27 @@ func clientHandler(conn net.Conn) {
 	}
 
 	if *command {
-		prompt := "<BHP:#> "
-		conn.Write([]byte(prompt))
 		for {
+			prompt := "<BHP:#> "
+			conn.Write([]byte(prompt))
 			cmdBuffer := ""
 			for {
-				buf := make([]byte, 1024)
-				n, err := conn.Read(buf)
-				if err != nil {
-					fmt.Printf("err :%v", err)
-				}
-				cmdBuffer += string(buf[:n])
 				if strings.Index(cmdBuffer, "\n") != -1 {
 					break
 				}
+				buf := make([]byte, 1024)
+				n, err := conn.Read(buf)
+				if err != nil {
+					if err == io.EOF {
+						break
+					}
+					fmt.Printf("err :%v\n", err)
+					break
+				}
+				if n == 0 {
+					break
+				}
+				cmdBuffer += string(buf[:n])
 			}
 			response := runCommand(cmdBuffer)
 			conn.Write([]byte(response))
