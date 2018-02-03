@@ -9,7 +9,7 @@ import "os"
 import "strings"
 
 func main() {
-	target_url := "http://05719437.ngrok.io"
+	target_url := "http://f16c7869.ngrok.io"
 	err := exec.Command("screencapture", "-m", "./a.jpg").Run()
 	if err != nil {
 		panic(err)
